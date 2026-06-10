@@ -1,9 +1,8 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-// Кеш в памяти (работает, пока функция «теплая»)
 const cache = {};
-const CACHE_DURATION = 5 * 60 * 1000; 
+const CACHE_DURATION = 5 * 60 * 1000;
 
 module.exports = async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -13,51 +12,48 @@ module.exports = async function handler(req, res) {
     if (req.method === 'OPTIONS') return res.status(200).end();
 
     const { username, lat, lon } = req.query;
+    
+    // Генерируем ключ кеша на основе того, что пришло (имя или координаты)
+    const cacheKey = username || `${lat}_${lon}`;
 
     if (!username && (!lat || !lon)) {
-        return res.status(400).json({ success: false, error: 'Укажите username или координаты (lat, lon)' });
+        return res.status(400).json({ success: false, error: 'Нужен username или lat+lon' });
+    }
+
+    // Проверка кеша
+    if (cache[cacheKey] && (Date.now() - cache[cacheKey].timestamp) < CACHE_DURATION) {
+        return res.json({ ...cache[cacheKey].data, fromCache: true });
     }
 
     try {
-        const now = Date.now();
-        const cacheKey = username || `${lat}_${lon}`;
+        const profileData = {};
 
-        if (cache[cacheKey] && (now - cache[cacheKey].timestamp) < CACHE_DURATION) {
-            return res.json({ ...cache[cacheKey].data, fromCache: true });
-        }
-
-        let result = {};
-
-        // 1. Парсинг Telegram (если передан username)
+        // 1. Парсинг профиля (если есть username)
         if (username) {
-            const url = `https://t.me/${username.replace('@', '').trim()}`;
-            const response = await axios.get(url, { timeout: 8000 });
+            const cleanUser = username.replace('@', '').trim();
+            const response = await axios.get(`https://t.me/${cleanUser}`, { timeout: 10000 });
             const $ = cheerio.load(response.data);
             
-            result.profile = {
-                name: $('.tgme_page_title span').first().text().trim(),
-                bio: $('.tgme_page_description').text().trim(),
-                avatar: $('img.tgme_page_photo_image').attr('src')
-            };
+            profileData.username = cleanUser;
+            profileData.name = $('.tgme_page_title span').first().text().trim();
+            profileData.bio = $('.tgme_page_description').text().trim();
+            profileData.avatar = $('img.tgme_page_photo_image').attr('src');
+            profileData.verified = $('.verified-icon').length > 0;
         }
 
-        // 2. Парсинг Погоды (если переданы lat/lon)
+        // 2. Парсинг погоды (если есть lat и lon)
         if (lat && lon) {
-            // Open-Meteo API
-            const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&hourly=temperature_2m`;
-            const weatherRes = await axios.get(weatherUrl);
-            
-            result.weather = {
+            const weatherRes = await axios.get(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&timezone=auto`);
+            profileData.weather = {
                 temp: weatherRes.data.current.temperature_2m,
-                code: weatherRes.data.current.weather_code,
-                hourly: weatherRes.data.hourly.temperature_2m.slice(0, 24) // Данные на 24 часа
+                code: weatherRes.data.current.weather_code
             };
         }
 
-        const finalData = { success: true, ...result, updatedAt: new Date().toISOString() };
-        cache[cacheKey] = { data: finalData, timestamp: now };
+        const finalResponse = { success: true, ...profileData, updatedAt: new Date().toISOString() };
+        cache[cacheKey] = { data: finalResponse, timestamp: Date.now() };
 
-        return res.json(finalData);
+        return res.json(finalResponse);
 
     } catch (error) {
         return res.status(500).json({ success: false, error: error.message });
