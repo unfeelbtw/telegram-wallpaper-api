@@ -1,0 +1,11 @@
+{
+  "name": "telegram-wallpaper-api",
+  "version": "1.0.0",
+  "description": "Telegram profile API for Wallpaper Engine",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "axios": "^1.16.1",
+    "cheerio": "^1.2.0"
+  }
+}
