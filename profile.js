@@ -41,13 +41,28 @@ module.exports = async function handler(req, res) {
             profileData.verified = $('.verified-icon').length > 0;
         }
 
-        // 2. Парсинг погоды (если есть lat и lon)
+        // 2. Погода + восход/закат (один запрос, если есть lat и lon)
         if (lat && lon) {
-            const weatherRes = await axios.get(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&timezone=auto`);
+            const weatherRes = await axios.get(
+                `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+                `&current=temperature_2m,weather_code` +
+                `&daily=sunrise,sunset` +
+                `&timezone=auto&forecast_days=1`
+            );
+            const current = weatherRes.data.current;
+            const daily   = weatherRes.data.daily;
+
             profileData.weather = {
-                temp: weatherRes.data.current.temperature_2m,
-                code: weatherRes.data.current.weather_code
+                temp: current.temperature_2m,
+                code: current.weather_code
             };
+
+            if (daily && daily.sunrise && daily.sunset) {
+                profileData.sun = {
+                    rise: daily.sunrise[0], // "2025-06-11T05:12"
+                    set:  daily.sunset[0]   // "2025-06-11T21:47"
+                };
+            }
         }
 
         const finalResponse = { success: true, ...profileData, updatedAt: new Date().toISOString() };
